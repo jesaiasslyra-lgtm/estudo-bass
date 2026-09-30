@@ -209,9 +209,29 @@
       const dx = to.x - from.x;
       const dy = to.y - from.y;
       const length = Math.sqrt(dx * dx + dy * dy);
-      if (length < r * 2 + 8) continue;
+      if (length < 1) continue;
       const ux = dx / length;
       const uy = dy / length;
+      if (length < r * 2 + 8) {
+        const nx = -uy;
+        const ny = ux;
+        const side = index % 2 === 0 ? 1 : -1;
+        const edge = r * 0.84;
+        const x1 = from.x + ux * edge + nx * side * edge;
+        const y1 = from.y + uy * edge + ny * side * edge;
+        const x2 = to.x - ux * edge + nx * side * edge;
+        const y2 = to.y - uy * edge + ny * side * edge;
+        const cx = (from.x + to.x) / 2 + nx * side * (r + 10);
+        const cy = (from.y + to.y) / 2 + ny * side * (r + 10);
+        const txLength = Math.sqrt((x2 - cx) * (x2 - cx) + (y2 - cy) * (y2 - cy));
+        const tx = (x2 - cx) / txLength;
+        const ty = (y2 - cy) / txLength;
+        const baseX = x2 - tx * 6;
+        const baseY = y2 - ty * 6;
+        svg += '<path class="fret-route" d="M ' + n(x1) + ' ' + n(y1) + ' Q ' + n(cx) + ' ' + n(cy) + ' ' + n(x2) + ' ' + n(y2) + '"/>';
+        svg += '<polygon class="fret-arrow" points="' + n(x2) + ',' + n(y2) + ' ' + n(baseX - ty * 3) + ',' + n(baseY + tx * 3) + ' ' + n(baseX + ty * 3) + ',' + n(baseY - tx * 3) + '"/>';
+        continue;
+      }
       const x1 = from.x + ux * (r + 3);
       const y1 = from.y + uy * (r + 3);
       const x2 = to.x - ux * (r + 4);
@@ -1102,7 +1122,7 @@
           window.location.reload();
         });
       }
-      navigator.serviceWorker.register('./sw.js?v=16', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('./sw.js?v=17', { updateViaCache: 'none' })
         .then((registration) => registration.update())
         .catch(() => {});
     }
