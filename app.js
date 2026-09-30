@@ -22,6 +22,8 @@
   let editorMode = '';
   let composer = null;
   let studySongId = null;
+  let isStageMode = false;
+  let stageLineIndex = 0;
   let studySpeed = 0.75;
   let isPlaying = false;
   let animationFrame = 0;
@@ -74,6 +76,10 @@
     Object.keys(views).forEach((key) => views[key].classList.toggle('hidden', key !== name));
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (name !== 'study') pauseStudy(false);
+    $('stageView').classList.add('hidden');
+    $('stageView').setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('stage-mode');
+    isStageMode = false;
   }
 
   function normalizedLyrics(text) {
@@ -458,12 +464,122 @@
     return '<article class="phrase-card"><div class="phrase-card-heading"><span>' + escapeHtml(heading) + '</span><span>observe o caminho</span></div><div class="phrase-svg-wrap">' + fretboardSvg(phrase.steps, false) + '<p class="phrase-sequence-caption">' + escapeHtml(compactSequence(phrase.steps)) + '</p></div></article>';
   }
 
+  function renderStageLyrics(song) {
+    const lines = normalizedLyrics(song.lyrics || '');
+    $('stageLyrics').dataset.activeLine = '';
+    $('stageLyrics').innerHTML = lines.map((line, index) => line.trim()
+      ? '<p class="stage-lyric-row" data-line-index="' + index + '">' + escapeHtml(line) + '</p>'
+      : '<div class="stage-lyric-spacer" aria-hidden="true"></div>').join('');
+  }
+
+  function currentLyricIndex(container, selector) {
+    const rows = Array.from(container.querySelectorAll(selector));
+    if (!rows.length) return -1;
+    const marker = container.getBoundingClientRect().top + container.clientHeight * 0.43;
+    let closest = rows[0];
+    let distance = Infinity;
+    rows.forEach((row) => {
+      const rect = row.getBoundingClientRect();
+      const center = rect.top + rect.height / 2;
+      const nextDistance = Math.abs(center - marker);
+      if (nextDistance < distance) {
+        closest = row;
+        distance = nextDistance;
+      }
+    });
+    return Number(closest.dataset.lineIndex);
+  }
+
+  function updateStagePhrasePanel() {
+    const song = songs.find((item) => item.id === studySongId);
+    const panel = $('stagePhrasePanel');
+    if (!song || !panel) return;
+    const rows = Array.from($('stageLyrics').querySelectorAll('.stage-lyric-row'));
+    const positionByLine = new Map(rows.map((row, index) => [Number(row.dataset.lineIndex), index]));
+    const currentPosition = Math.max(0, positionByLine.get(stageLineIndex) || 0);
+    const phrases = (song.phrases || []).filter((phrase) => positionByLine.has(Number(phrase.lineIndex)))
+      .sort((a, b) => Number(a.lineIndex) - Number(b.lineIndex));
+    const next = phrases.find((phrase) => positionByLine.get(Number(phrase.lineIndex)) >= currentPosition);
+    const previous = [...phrases].reverse().find((phrase) => positionByLine.get(Number(phrase.lineIndex)) <= currentPosition);
+    const nextDistance = next ? positionByLine.get(Number(next.lineIndex)) - currentPosition : Infinity;
+    const selected = nextDistance <= 2 ? next : previous;
+    if (!selected) {
+      panel.innerHTML = '<p class="stage-empty-cue">A próxima frase do baixo aparece aqui quando você se aproximar dela.</p>';
+      return;
+    }
+    panel.innerHTML = phraseCardMarkup(selected, false);
+    const heading = panel.querySelector('.phrase-card-heading span:first-child');
+    const selectedPosition = positionByLine.get(Number(selected.lineIndex));
+    heading.textContent = selectedPosition > currentPosition
+      ? 'PRÓXIMA FRASE · ' + (selected.title || 'ARRANJO')
+      : (selectedPosition === currentPosition ? 'TOQUE AGORA · ' : 'FRASE DESTA PARTE · ') + (selected.title || 'ARRANJO');
+    const distance = selectedPosition - currentPosition;
+    panel.querySelector('.phrase-card-heading span:last-child').textContent = distance > 0
+      ? 'em ' + distance + (distance === 1 ? ' linha' : ' linhas')
+      : (distance === 0 ? 'nesta linha' : 'trecho anterior');
+  }
+
+  function updateStageFocus() {
+    const panel = $('stageLyrics');
+    const nextIndex = currentLyricIndex(panel, '.stage-lyric-row');
+    if (nextIndex < 0 || String(nextIndex) === panel.dataset.activeLine) return;
+    stageLineIndex = nextIndex;
+    panel.dataset.activeLine = String(nextIndex);
+    panel.querySelectorAll('.stage-lyric-row').forEach((row) => {
+      const current = Number(row.dataset.lineIndex) === nextIndex;
+      row.classList.toggle('is-current', current);
+      if (current) row.setAttribute('aria-current', 'true');
+      else row.removeAttribute('aria-current');
+    });
+    updateStagePhrasePanel();
+  }
+
+  function scrollStageToLine(lineIndex) {
+    const panel = $('stageLyrics');
+    const row = panel.querySelector('[data-line-index="' + lineIndex + '"]');
+    if (!row) return;
+    panel.scrollTop = Math.max(0, row.offsetTop - panel.clientHeight * 0.43 + row.offsetHeight / 2);
+    scrollPosition = panel.scrollTop;
+    updateStageFocus();
+  }
+
+  function enterStageMode() {
+    if (!studySongId || $('stageLaunchButton').classList.contains('hidden')) return;
+    pauseStudy(false);
+    const currentIndex = currentLyricIndex($('studyLyrics'), '.lyric-row');
+    $('stageView').classList.remove('hidden');
+    $('stageView').setAttribute('aria-hidden', 'false');
+    document.body.classList.add('stage-mode');
+    isStageMode = true;
+    scrollStageToLine(currentIndex >= 0 ? currentIndex : 0);
+    $('stageStatus').textContent = 'Pronto para tocar';
+    $('stagePlayButton').focus({ preventScroll: true });
+  }
+
+  function exitStageMode() {
+    if (!isStageMode) return;
+    updateStageFocus();
+    const returnIndex = stageLineIndex;
+    pauseStudy(false);
+    isStageMode = false;
+    $('stageView').classList.add('hidden');
+    $('stageView').setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('stage-mode');
+    const row = $('studyLyrics').querySelector('[data-line-index="' + returnIndex + '"]');
+    if (row) $('studyLyrics').scrollTop = Math.max(0, row.offsetTop - $('studyLyrics').clientHeight * 0.43 + row.offsetHeight / 2);
+    scrollPosition = $('studyLyrics').scrollTop;
+    $('readingStatus').textContent = 'Pausado no trecho atual';
+    $('stageLaunchButton').focus({ preventScroll: true });
+  }
   function startStudy(songId) {
     const song = songs.find((item) => item.id === songId);
     if (!song) return;
     studySongId = songId;
     const cueMode = (song.studyMode || (song.lyrics ? 'lyrics' : 'cues')) === 'cues';
     $('studyTitle').textContent = song.title;
+    $('stageTitle').textContent = song.title;
+    $('stageKey').textContent = 'TOM · ' + (song.key || 'não definido');
+    $('stageLaunchButton').classList.toggle('hidden', (song.studyMode || (song.lyrics ? 'lyrics' : 'cues')) === 'cues');
     $('studyKey').textContent = 'TOM · ' + (song.key || 'não definido');
     const groupBadge = $('studyGroup');
     groupBadge.textContent = groupLabel(song.group);
@@ -484,7 +600,7 @@
         phrasesByLine.get(lineIndex).push(phrase);
       });
       lines.forEach((line, index) => {
-        if (line.trim()) markup += '<p class="lyric-row' + (phrasesByLine.has(index) ? ' current-cue' : '') + '"><span class="lyric-text">' + escapeHtml(line) + '</span></p>';
+        if (line.trim()) markup += '<p class="lyric-row' + (phrasesByLine.has(index) ? ' current-cue' : '') + '" data-line-index="' + index + '"><span class="lyric-text">' + escapeHtml(line) + '</span></p>';
         (phrasesByLine.get(index) || []).forEach((phrase) => { markup += phraseCardMarkup(phrase, false); });
         if (!line.trim() && !phrasesByLine.has(index)) markup += '<div class="lyric-spacer" aria-hidden="true"></div>';
       });
@@ -492,6 +608,9 @@
     if (!markup.trim()) markup = '<div class="study-empty">' + (cueMode ? 'Esta música ainda não tem lembretes. Edite para adicionar as chamadas e os desenhos do baixo.' : 'Esta música ainda não tem letra. Edite para adicionar a letra e marcar as frases.') + '</div>';
     $('studyLyrics').innerHTML = markup;
     $('studyLyrics').scrollTop = 0;
+    renderStageLyrics(song);
+    stageLineIndex = 0;
+    updateStagePhrasePanel();
     $('speedControl').classList.toggle('hidden', cueMode);
     $('playButton').classList.toggle('hidden', cueMode);
     $('topButton').classList.toggle('hidden', cueMode);
@@ -501,6 +620,7 @@
     $('studyFooter').textContent = cueMode ? 'As chamadas aparecem na ordem em que você cadastrou as frases.' : 'Toque em qualquer parte da letra para pausar ou rolar manualmente.';
     studySpeed = 0.75;
     $('speedSlider').value = String(studySpeed);
+    $('stageSpeedSlider').value = String(studySpeed);
     updateSpeedLabel();
     pauseStudy(false);
     $('readingStatus').textContent = cueMode ? phrases.length + (phrases.length === 1 ? ' lembrete cadastrado' : ' lembretes cadastrados') : 'Pronto para estudar';
@@ -509,11 +629,13 @@
 
   function updateSpeedLabel() {
     $('speedValue').textContent = studySpeed.toFixed(2).replace('.', ',') + '×';
+    $('stageSpeedValue').textContent = studySpeed.toFixed(2).replace('.', ',') + '×';
   }
 
   function setSpeed(value) {
     studySpeed = Math.max(0.25, Math.min(2, Math.round(Number(value) * 4) / 4));
     $('speedSlider').value = String(studySpeed);
+    $('stageSpeedSlider').value = String(studySpeed);
     updateSpeedLabel();
   }
 
@@ -522,13 +644,15 @@
     if (!lastFrame) lastFrame = now;
     const delta = Math.min(now - lastFrame, 60);
     lastFrame = now;
-    const panel = $('studyLyrics');
+    const panel = $(isStageMode ? 'stageLyrics' : 'studyLyrics');
     const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
     scrollPosition = Math.min(maxScroll, scrollPosition + delta * studySpeed * 0.03);
     panel.scrollTop = scrollPosition;
+    if (isStageMode) updateStageFocus();
     if (scrollPosition >= maxScroll - 2) {
       pauseStudy(false);
       $('readingStatus').textContent = 'Fim da letra';
+      $('stageStatus').textContent = 'Fim da letra';
       return;
     }
     animationFrame = requestAnimationFrame(scrollFrame);
@@ -543,7 +667,12 @@
       $('playButton').innerHTML = '<span>▶</span><span>Começar</span>';
       $('playButton').setAttribute('aria-label', 'Começar rolagem da letra');
     }
+    if ($('stagePlayButton')) {
+      $('stagePlayButton').innerHTML = '<span aria-hidden="true">▶</span><span>Começar</span>';
+      $('stagePlayButton').setAttribute('aria-label', 'Começar rolagem da letra');
+    }
     if (updateStatus && $('readingStatus')) $('readingStatus').textContent = 'Pausado · role manualmente se quiser';
+    if (updateStatus && $('stageStatus')) $('stageStatus').textContent = 'Pausado';
   }
 
   function toggleStudy() {
@@ -551,13 +680,16 @@
       pauseStudy(true);
       return;
     }
-    const panel = $('studyLyrics');
+    const panel = $(isStageMode ? 'stageLyrics' : 'studyLyrics');
     if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) panel.scrollTop = 0;
     scrollPosition = panel.scrollTop;
     isPlaying = true;
     $('playButton').innerHTML = '<span>Ⅱ</span><span>Pausar</span>';
     $('playButton').setAttribute('aria-label', 'Pausar rolagem da letra');
+    $('stagePlayButton').innerHTML = '<span aria-hidden="true">Ⅱ</span><span>Pausar</span>';
+    $('stagePlayButton').setAttribute('aria-label', 'Pausar rolagem da letra');
     $('readingStatus').textContent = 'Letra rolando';
+    $('stageStatus').textContent = 'Letra rolando';
     lastFrame = 0;
     animationFrame = requestAnimationFrame(scrollFrame);
   }
@@ -670,7 +802,16 @@
     });
     $('searchInput').addEventListener('input', renderLibrary);
     $('editCurrentButton').addEventListener('click', () => openEditor(songs.find((song) => song.id === studySongId)));
+    $('stageLaunchButton').addEventListener('click', enterStageMode);
+    $('stageExitButton').addEventListener('click', exitStageMode);
     $('playButton').addEventListener('click', toggleStudy);
+    $('stagePlayButton').addEventListener('click', toggleStudy);
+    $('stageSpeedSlider').addEventListener('input', (event) => setSpeed(event.target.value));
+    $('stageSlowerButton').addEventListener('click', () => setSpeed(studySpeed - 0.25));
+    $('stageFasterButton').addEventListener('click', () => setSpeed(studySpeed + 0.25));
+    $('stageLyrics').addEventListener('pointerdown', () => { if (isPlaying) pauseStudy(true); }, { passive: true });
+    $('stageLyrics').addEventListener('scroll', () => { if (isStageMode) updateStageFocus(); }, { passive: true });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && isStageMode) exitStageMode(); });
     $('speedSlider').addEventListener('input', (event) => setSpeed(event.target.value));
     $('slowerButton').addEventListener('click', () => setSpeed(studySpeed - 0.25));
     $('fasterButton').addEventListener('click', () => setSpeed(studySpeed + 0.25));
