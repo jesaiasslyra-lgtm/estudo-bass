@@ -36,6 +36,16 @@
   let scrollPosition = 0;
   let installPrompt = null;
   let toastTimer = 0;
+  let stageRows = [];
+  let stageRowByLine = new Map();
+  let stagePositionByLine = new Map();
+  let stagePhrases = [];
+  let stageDisplayedPhrase = null;
+  let stagePhraseHeading = null;
+  let stagePhraseDistance = null;
+  let stageEmptyRendered = false;
+  let stageFocusFrame = 0;
+  let lastStageFocusAt = 0;
 
   function makeId() {
     return (globalThis.crypto && crypto.randomUUID)
@@ -536,10 +546,24 @@
 
   function renderStageLyrics(song) {
     const lines = normalizedLyrics(song.lyrics || '');
-    $('stageLyrics').dataset.activeLine = '';
-    $('stageLyrics').innerHTML = lines.map((line, index) => line.trim()
+    const container = $('stageLyrics');
+    container.dataset.activeLine = '';
+    container.innerHTML = lines.map((line, index) => line.trim()
       ? '<p class="stage-lyric-row" data-line-index="' + index + '">' + escapeHtml(line) + '</p>'
       : '<div class="stage-lyric-spacer" aria-hidden="true"></div>').join('');
+
+    stageRows = Array.from(container.querySelectorAll('.stage-lyric-row'));
+    stageRowByLine = new Map(stageRows.map((row) => [Number(row.dataset.lineIndex), row]));
+    stagePositionByLine = new Map(stageRows.map((row, position) => [Number(row.dataset.lineIndex), position]));
+    stagePhrases = (song.phrases || [])
+      .map((phrase) => ({ phrase, position: stagePositionByLine.get(Number(phrase.lineIndex)) }))
+      .filter((entry) => Number.isInteger(entry.position))
+      .sort((a, b) => a.position - b.position);
+    stageDisplayedPhrase = null;
+    stagePhraseHeading = null;
+    stagePhraseDistance = null;
+    stageEmptyRendered = false;
+    lastStageFocusAt = 0;
   }
 
   function currentLyricIndex(container, selector) {
@@ -560,48 +584,107 @@
     return Number(closest.dataset.lineIndex);
   }
 
+  function currentStageLyricIndex(container) {
+    if (!stageRows.length) return -1;
+    const bounds = container.getBoundingClientRect();
+    const markerY = bounds.top + container.clientHeight * 0.43;
+    const markerX = bounds.left + bounds.width / 2;
+    const hit = document.elementFromPoint(markerX, markerY);
+    const hitRow = hit && hit.closest ? hit.closest('.stage-lyric-row') : null;
+    if (hitRow && container.contains(hitRow)) return Number(hitRow.dataset.lineIndex);
+
+    const target = container.scrollTop + container.clientHeight * 0.43;
+    let low = 0;
+    let high = stageRows.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const row = stageRows[middle];
+      const center = row.offsetTop + row.offsetHeight / 2;
+      if (center < target) low = middle + 1;
+      else high = middle - 1;
+    }
+    const candidates = [stageRows[Math.max(0, Math.min(stageRows.length - 1, high))], stageRows[Math.max(0, Math.min(stageRows.length - 1, low))]];
+    let closest = candidates[0];
+    let distance = Infinity;
+    candidates.forEach((row) => {
+      const center = row.offsetTop + row.offsetHeight / 2;
+      const nextDistance = Math.abs(center - target);
+      if (nextDistance < distance) {
+        closest = row;
+        distance = nextDistance;
+      }
+    });
+    return Number(closest.dataset.lineIndex);
+  }
+
   function updateStagePhrasePanel() {
-    const song = songs.find((item) => item.id === studySongId);
     const panel = $('stagePhrasePanel');
-    if (!song || !panel) return;
-    const rows = Array.from($('stageLyrics').querySelectorAll('.stage-lyric-row'));
-    const positionByLine = new Map(rows.map((row, index) => [Number(row.dataset.lineIndex), index]));
-    const currentPosition = Math.max(0, positionByLine.get(stageLineIndex) || 0);
-    const phrases = (song.phrases || []).filter((phrase) => positionByLine.has(Number(phrase.lineIndex)))
-      .sort((a, b) => Number(a.lineIndex) - Number(b.lineIndex));
-    const next = phrases.find((phrase) => positionByLine.get(Number(phrase.lineIndex)) >= currentPosition);
-    const previous = [...phrases].reverse().find((phrase) => positionByLine.get(Number(phrase.lineIndex)) <= currentPosition);
-    const nextDistance = next ? positionByLine.get(Number(next.lineIndex)) - currentPosition : Infinity;
+    if (!panel) return;
+    const currentPosition = Math.max(0, stagePositionByLine.get(stageLineIndex) || 0);
+    const next = stagePhrases.find((entry) => entry.position >= currentPosition);
+    let previous = null;
+    for (let index = stagePhrases.length - 1; index >= 0; index -= 1) {
+      if (stagePhrases[index].position <= currentPosition) {
+        previous = stagePhrases[index];
+        break;
+      }
+    }
+    const nextDistance = next ? next.position - currentPosition : Infinity;
     const selected = nextDistance <= 2 ? next : previous;
+
     if (!selected) {
-      panel.innerHTML = '<p class="stage-empty-cue">A próxima frase do baixo aparece aqui quando você se aproximar dela.</p>';
+      if (!stageEmptyRendered) {
+        panel.innerHTML = '<p class="stage-empty-cue">A próxima frase do baixo aparece aqui quando você se aproximar dela.</p>';
+        stageDisplayedPhrase = null;
+        stagePhraseHeading = null;
+        stagePhraseDistance = null;
+        stageEmptyRendered = true;
+      }
       return;
     }
-    panel.innerHTML = phraseCardMarkup(selected, false);
-    const heading = panel.querySelector('.phrase-card-heading span:first-child');
-    const selectedPosition = positionByLine.get(Number(selected.lineIndex));
-    heading.textContent = selectedPosition > currentPosition
-      ? 'PRÓXIMA FRASE · ' + (selected.title || 'ARRANJO')
-      : (selectedPosition === currentPosition ? 'TOQUE AGORA · ' : 'FRASE DESTA PARTE · ') + (selected.title || 'ARRANJO');
-    const distance = selectedPosition - currentPosition;
-    panel.querySelector('.phrase-card-heading span:last-child').textContent = distance > 0
+
+    stageEmptyRendered = false;
+    if (stageDisplayedPhrase !== selected.phrase) {
+      panel.innerHTML = phraseCardMarkup(selected.phrase, false);
+      stageDisplayedPhrase = selected.phrase;
+      stagePhraseHeading = panel.querySelector('.phrase-card-heading span:first-child');
+      stagePhraseDistance = panel.querySelector('.phrase-card-heading span:last-child');
+    }
+
+    stagePhraseHeading.textContent = selected.position > currentPosition
+      ? 'PRÓXIMA FRASE · ' + (selected.phrase.title || 'ARRANJO')
+      : (selected.position === currentPosition ? 'TOQUE AGORA · ' : 'FRASE DESTA PARTE · ') + (selected.phrase.title || 'ARRANJO');
+    const distance = selected.position - currentPosition;
+    stagePhraseDistance.textContent = distance > 0
       ? 'em ' + distance + (distance === 1 ? ' linha' : ' linhas')
       : (distance === 0 ? 'nesta linha' : 'trecho anterior');
   }
 
   function updateStageFocus() {
     const panel = $('stageLyrics');
-    const nextIndex = currentLyricIndex(panel, '.stage-lyric-row');
-    if (nextIndex < 0 || String(nextIndex) === panel.dataset.activeLine) return;
+    const nextIndex = currentStageLyricIndex(panel);
+    if (nextIndex < 0 || nextIndex === stageLineIndex) return;
+    const previousRow = stageRowByLine.get(stageLineIndex);
+    if (previousRow) {
+      previousRow.classList.remove('is-current');
+      previousRow.removeAttribute('aria-current');
+    }
     stageLineIndex = nextIndex;
     panel.dataset.activeLine = String(nextIndex);
-    panel.querySelectorAll('.stage-lyric-row').forEach((row) => {
-      const current = Number(row.dataset.lineIndex) === nextIndex;
-      row.classList.toggle('is-current', current);
-      if (current) row.setAttribute('aria-current', 'true');
-      else row.removeAttribute('aria-current');
-    });
+    const currentRow = stageRowByLine.get(nextIndex);
+    if (currentRow) {
+      currentRow.classList.add('is-current');
+      currentRow.setAttribute('aria-current', 'true');
+    }
     updateStagePhrasePanel();
+  }
+
+  function scheduleStageFocus() {
+    if (stageFocusFrame) return;
+    stageFocusFrame = requestAnimationFrame(() => {
+      stageFocusFrame = 0;
+      if (isStageMode && !isPlaying) updateStageFocus();
+    });
   }
 
   function scrollStageToLine(lineIndex) {
@@ -711,7 +794,10 @@
     const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
     scrollPosition = Math.min(maxScroll, scrollPosition + delta * studySpeed * 0.03);
     panel.scrollTop = scrollPosition;
-    if (isStageMode) updateStageFocus();
+    if (isStageMode && now - lastStageFocusAt >= 80) {
+      lastStageFocusAt = now;
+      updateStageFocus();
+    }
     if (scrollPosition >= maxScroll - 2) {
       pauseStudy(false);
       $('readingStatus').textContent = 'Fim da letra';
@@ -894,7 +980,9 @@
     $('stageSlowerButton').addEventListener('click', () => setSpeed(studySpeed - 0.25));
     $('stageFasterButton').addEventListener('click', () => setSpeed(studySpeed + 0.25));
     $('stageLyrics').addEventListener('pointerdown', () => { if (isPlaying) pauseStudy(true); }, { passive: true });
-    $('stageLyrics').addEventListener('scroll', () => { if (isStageMode) updateStageFocus(); }, { passive: true });
+    $('stageLyrics').addEventListener('scroll', () => {
+      if (isStageMode && !isPlaying) scheduleStageFocus();
+    }, { passive: true });
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
       if (isStageMode) exitStageMode();
@@ -955,7 +1043,7 @@
           window.location.reload();
         });
       }
-      navigator.serviceWorker.register('./sw.js?v=14', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('./sw.js?v=15', { updateViaCache: 'none' })
         .then((registration) => registration.update())
         .catch(() => {});
     }
