@@ -1,5 +1,5 @@
-const CACHE_NAME = "estudo-bass-shell-v12";
-const SHELL = ["./","./index.html","./styles.css","./app.js","./manifest.webmanifest","./icon.svg","./icon-192.png","./icon-512.png"];
+const CACHE_NAME = "estudo-bass-shell-v13";
+const SHELL = ["./", "./index.html", "./styles.css?v=13", "./app.js?v=13", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -10,18 +10,16 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) return;
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).then((response) => {
+    event.respondWith(fetch(request, { cache: "no-store" }).then((response) => {
+      if (!response.ok) return response;
       const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
-      return response;
+      return caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy)).then(() => response).catch(() => response);
     }).catch(() => caches.match("./index.html")));
     return;
   }
   event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-    if (response.ok) {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-    }
-    return response;
+    if (!response.ok) return response;
+    const copy = response.clone();
+    return caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).then(() => response).catch(() => response);
   })));
 });

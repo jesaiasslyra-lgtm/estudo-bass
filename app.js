@@ -854,7 +854,18 @@
     bindEvents();
     renderLibrary();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      let refreshedForUpdate = false;
+      if (hadController) {
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshedForUpdate) return;
+          refreshedForUpdate = true;
+          window.location.reload();
+        });
+      }
+      navigator.serviceWorker.register('./sw.js?v=13', { updateViaCache: 'none' })
+        .then((registration) => registration.update())
+        .catch(() => {});
     }
   }
 
