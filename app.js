@@ -11,7 +11,12 @@
   ];
   const NOTE_NAMES = ['Dó', 'Dó♯', 'Ré', 'Ré♯', 'Mi', 'Fá', 'Fá♯', 'Sol', 'Sol♯', 'Lá', 'Lá♯', 'Si'];
   const KEYS = ['Dó', 'Dó♯/Ré♭', 'Ré', 'Ré♯/Mi♭', 'Mi', 'Fá', 'Fá♯/Sol♭', 'Sol', 'Sol♯/Lá♭', 'Lá', 'Lá♯/Si♭', 'Si'];
-  const GROUPS = [{ id: 'adolescentes', label: 'Adolescentes', target: 3, countId: 'groupCountTeens' }, { id: 'jovens', label: 'Jovens', target: 3, countId: 'groupCountYouth' }, { id: 'senhoras', label: 'Senhoras', target: 3, countId: 'groupCountLadies' }, { id: 'louvor', label: 'Ministério de louvor', target: 5, countId: 'groupCountWorship' }];
+  const GROUPS = [{ id: 'adolescentes', label: 'Adolescentes', short: 'Adolescentes', target: 3, countId: 'groupCountTeens' }, { id: 'jovens', label: 'Jovens', short: 'Jovens', target: 3, countId: 'groupCountYouth' }, { id: 'senhoras', label: 'Senhoras', short: 'Senhoras', target: 3, countId: 'groupCountLadies' }, { id: 'louvor', label: 'Ministério de louvor', short: 'Louvor', target: 5, countId: 'groupCountWorship' }];
+  const ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>';
+  const ICON_PAUSE = '<svg class="play-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>';
+  const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>';
+  const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 001 1h8a1 1 0 001-1l1-12M9 7V4h6v3"/></svg>';
   const $ = (id) => document.getElementById(id);
   const views = { library: $('libraryView'), editor: $('editorView'), study: $('studyView') };
 
@@ -74,6 +79,8 @@
 
   function showView(name) {
     Object.keys(views).forEach((key) => views[key].classList.toggle('hidden', key !== name));
+    document.body.dataset.view = name;
+    closeMoreMenu();
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (name !== 'study') pauseStudy(false);
     $('stageView').classList.add('hidden');
@@ -104,15 +111,6 @@
     return NOTE_NAMES[((midi % 12) + 12) % 12];
   }
 
-  function fretX(fret) {
-    if (Number(fret) === 0) return 40;
-    return 52 + (Number(fret) - 0.5) * 41.333333;
-  }
-
-  function stringY(index) {
-    return 31 + index * 38;
-  }
-
   function uniqueSteps(steps) {
     const map = new Map();
     (steps || []).forEach((step) => {
@@ -122,77 +120,117 @@
     return Array.from(map.values());
   }
 
+  function boardWindow(steps, interactive) {
+    if (interactive) return { a: 0, b: 12 };
+    const frets = (steps || []).map((step) => Number(step.fret));
+    if (!frets.length) return { a: 0, b: 5 };
+    const min = Math.min(...frets);
+    const max = Math.max(...frets);
+    const a = min === 0 ? 0 : Math.max(1, min - 1);
+    const b = Math.min(12, Math.max(max + 1, Math.max(a, 1) + 4));
+    return { a, b };
+  }
+
+  function boardRangeLabel(steps) {
+    const range = boardWindow(steps, false);
+    return 'casas ' + range.a + '–' + range.b;
+  }
+
   function fretboardSvg(steps, interactive) {
     const safeSteps = Array.isArray(steps) ? steps : [];
     const points = uniqueSteps(safeSteps);
-    const pointByKey = new Map(points.map((point) => [point.string + ':' + point.fret, point]));
-    let svg = '<svg class="fretboard" viewBox="0 0 570 224" role="img" aria-label="Braço de baixo de cinco cordas">';
-    svg += '<defs><marker id="arrow-head" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0L6 3L0 6z" fill="#b78b91"/></marker></defs>';
-    svg += '<rect x="50" y="10" width="504" height="181" rx="7" fill="#fbfaf6"/>';
-    STRINGS.forEach((string, index) => {
-      const y = stringY(index);
-      svg += '<text x="25" y="' + (y + 4) + '" class="string-label">' + string.name + '</text>';
-      svg += '<line x1="52" y1="' + y + '" x2="554" y2="' + y + '" class="fret-string"/>';
+    const { a, b } = boardWindow(safeSteps, interactive);
+    const W = interactive ? 348 : 330;
+    const sy = interactive ? 40 : 26;
+    const r = 12;
+    const labelW = 18;
+    const openW = a === 0 ? 30 : 0;
+    const left = labelW + openW;
+    const first = Math.max(a, 1);
+    const cells = b - first + 1;
+    const right = W - 6;
+    const sp = (right - left) / cells;
+    const top = 18;
+    const bottom = top + 4 * sy;
+    const H = bottom + 34;
+    const xFor = (fret) => Number(fret) === 0 ? labelW + openW / 2 : left + (Number(fret) - first + 0.5) * sp;
+    const yFor = (string) => top + Number(string) * sy;
+    const n = (value) => Math.round(value * 10) / 10;
+    let svg = '<svg class="fretboard" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Braço de baixo de cinco cordas">';
+    svg += '<rect class="fb-bg" x="' + left + '" y="' + (top - 10) + '" width="' + n(right - left) + '" height="' + (4 * sy + 20) + '" rx="6"/>';
+    const middle = (top + bottom) / 2;
+    [3, 5, 7, 9].forEach((fret) => {
+      if (fret >= first && fret <= b) svg += '<circle class="fb-marker" cx="' + n(xFor(fret)) + '" cy="' + middle + '" r="4"/>';
     });
-    svg += '<line x1="52" y1="12" x2="52" y2="184" class="fret-nut"/>';
-    svg += '<text x="40" y="208" class="fret-label">0</text>';
-    for (let fret = 1; fret <= 12; fret += 1) {
-      const x = 52 + fret * 41.333333;
-      svg += '<line x1="' + x + '" y1="12" x2="' + x + '" y2="184" class="fret-line"/>';
-      svg += '<text x="' + (x - 20.666667) + '" y="208" class="fret-label">' + fret + '</text>';
+    if (12 >= first && 12 <= b) {
+      svg += '<circle class="fb-marker" cx="' + n(xFor(12)) + '" cy="' + (top + 1.5 * sy) + '" r="4"/>';
+      svg += '<circle class="fb-marker" cx="' + n(xFor(12)) + '" cy="' + (top + 2.5 * sy) + '" r="4"/>';
     }
-    if (interactive) {
-      for (let row = 0; row < STRINGS.length; row += 1) {
-        svg += '<rect class="fret-zone" x="28" y="' + (stringY(row) - 15) + '" width="24" height="30" data-string="' + row + '" data-fret="0" tabindex="0" role="button" aria-label="Corda ' + STRINGS[row].name + ', solta"/>';
-        for (let fret = 1; fret <= 12; fret += 1) {
-          const x = 52 + (fret - 1) * 41.333333;
-          const y = stringY(row) - 15;
-          svg += '<rect class="fret-zone" x="' + x + '" y="' + y + '" width="41.333333" height="30" data-string="' + row + '" data-fret="' + fret + '" tabindex="0" role="button" aria-label="Corda ' + STRINGS[row].name + ', casa ' + fret + '"/>';
-        }
+    for (let k = 0; k <= cells; k += 1) {
+      const x = n(left + k * sp);
+      svg += '<line class="' + (k === 0 && a === 0 ? 'fb-nut' : 'fb-fret') + '" x1="' + x + '" y1="' + (top - 10) + '" x2="' + x + '" y2="' + (bottom + 10) + '"/>';
+    }
+    const stringStart = a === 0 ? labelW + 4 : left;
+    STRINGS.forEach((string, index) => {
+      const y = yFor(index);
+      svg += '<line class="fb-string" x1="' + stringStart + '" y1="' + y + '" x2="' + right + '" y2="' + y + '" stroke-width="' + n(1 + index * 0.4) + '"/>';
+      svg += '<text class="string-label" x="7" y="' + (y + 3.5) + '">' + string.name + '</text>';
+    });
+    for (let fret = first; fret <= b; fret += 1) {
+      if (interactive || fret === first || fret === b || [3, 5, 7, 9, 12].includes(fret)) {
+        svg += '<text class="fret-label" x="' + n(xFor(fret)) + '" y="' + (bottom + 30) + '">' + fret + '</text>';
       }
+    }
+    if (a === 0) svg += '<text class="fret-label" x="' + (labelW + openW / 2) + '" y="' + (bottom + 30) + '">0</text>';
+    if (interactive) {
+      STRINGS.forEach((string, row) => {
+        const y = yFor(row) - sy / 2;
+        svg += '<rect class="fret-zone" x="' + labelW + '" y="' + y + '" width="' + openW + '" height="' + sy + '" data-string="' + row + '" data-fret="0" tabindex="0" role="button" aria-label="Corda ' + string.name + ', solta"/>';
+        for (let fret = 1; fret <= 12; fret += 1) {
+          svg += '<rect class="fret-zone" x="' + n(left + (fret - 1) * sp) + '" y="' + y + '" width="' + n(sp) + '" height="' + sy + '" data-string="' + row + '" data-fret="' + fret + '" tabindex="0" role="button" aria-label="Corda ' + string.name + ', casa ' + fret + '"/>';
+        }
+      });
     }
     for (let index = 0; index < safeSteps.length - 1; index += 1) {
-      const from = safeSteps[index];
-      const to = safeSteps[index + 1];
-      const fromPoint = { x: fretX(from.fret), y: stringY(from.string) };
-      const toPoint = { x: fretX(to.fret), y: stringY(to.string) };
-      const dx = toPoint.x - fromPoint.x;
-      const dy = toPoint.y - fromPoint.y;
-      const length = Math.sqrt(dx * dx + dy * dy) || 1;
-      const offset = index % 2 === 0 ? -15 : 15;
-      const cx = (fromPoint.x + toPoint.x) / 2 - (dy / length) * offset;
-      const cy = (fromPoint.y + toPoint.y) / 2 + (dx / length) * offset;
-      const same = fromPoint.x === toPoint.x && fromPoint.y === toPoint.y;
-      if (same) {
-        svg += '<path class="fret-route" d="M ' + fromPoint.x + ' ' + fromPoint.y + ' C ' + (fromPoint.x + 18) + ' ' + (fromPoint.y - 19) + ', ' + (fromPoint.x + 18) + ' ' + (fromPoint.y + 19) + ', ' + fromPoint.x + ' ' + (fromPoint.y + 1) + '"/>';
-      } else {
-        svg += '<path class="fret-route" d="M ' + fromPoint.x + ' ' + fromPoint.y + ' Q ' + cx + ' ' + cy + ' ' + toPoint.x + ' ' + toPoint.y + '"/>';
-      }
+      const from = { x: xFor(safeSteps[index].fret), y: yFor(safeSteps[index].string) };
+      const to = { x: xFor(safeSteps[index + 1].fret), y: yFor(safeSteps[index + 1].string) };
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      if (length < r * 2 + 8) continue;
+      const ux = dx / length;
+      const uy = dy / length;
+      const x1 = from.x + ux * (r + 3);
+      const y1 = from.y + uy * (r + 3);
+      const x2 = to.x - ux * (r + 4);
+      const y2 = to.y - uy * (r + 4);
+      const ax = x2 + ux * 3;
+      const ay = y2 + uy * 3;
+      svg += '<line class="fret-route" x1="' + n(x1) + '" y1="' + n(y1) + '" x2="' + n(x2) + '" y2="' + n(y2) + '"/>';
+      svg += '<polygon class="fret-arrow" points="' + n(ax) + ',' + n(ay) + ' ' + n(ax - ux * 7 - uy * 4) + ',' + n(ay - uy * 7 + ux * 4) + ' ' + n(ax - ux * 7 + uy * 4) + ',' + n(ay - uy * 7 - ux * 4) + '"/>';
     }
     points.forEach((point) => {
-      const last = safeSteps[safeSteps.length - 1];
-      const active = last && last.string === point.string && Number(last.fret) === point.fret;
-      const x = fretX(point.fret);
-      const y = stringY(point.string);
-      svg += '<circle cx="' + x + '" cy="' + y + '" r="' + (active ? 12 : 11) + '" class="fret-dot' + (active ? ' active' : '') + '"/>';
-      svg += '<text x="' + x + '" y="' + y + '" class="fret-dot-label">' + point.id + '</text>';
+      const x = n(xFor(point.fret));
+      const y = yFor(point.string);
+      const open = point.fret === 0;
+      const label = noteAt(point.string, point.fret);
+      svg += '<circle class="fret-dot' + (open ? ' open' : '') + '" cx="' + x + '" cy="' + y + '" r="' + r + '"/>';
+      svg += '<text class="fret-dot-label' + (open ? ' open' : '') + (label.length > 3 ? ' small' : '') + '" x="' + x + '" y="' + y + '"' + '>' + escapeHtml(label) + '</text>';
     });
     if (interactive && safeSteps.length === 0) {
-      svg += '<text x="303" y="111" text-anchor="middle" fill="#9a968b" font-size="12">Toque em uma casa para começar</text>';
+      svg += '<text class="fb-hint" x="' + n((left + right) / 2) + '" y="' + (middle - sy / 2 + 4) + '">Toque em uma casa para começar</text>';
     }
     svg += '</svg>';
     return svg;
   }
 
-  function sequenceMarkup(steps) {
-    if (!steps || !steps.length) return '<span class="small-hint">Ainda sem notas. Toque no braço na ordem da frase.</span>';
-    const ids = new Map(uniqueSteps(steps).map((point) => [point.string + ':' + point.fret, point.id]));
-    return steps.map((step, index) => {
+  function sequenceMarkup(steps, showPending) {
+    if (!steps || !steps.length) return '<span class="sequence-empty">Ainda sem notas. Toque no braço na ordem da frase.</span>';
+    const chips = steps.map((step, index) => {
       const label = noteAt(step.string, step.fret);
-      const id = ids.get(step.string + ':' + step.fret);
-      const chip = '<span class="sequence-chip"><b>' + id + '</b>' + escapeHtml(label) + '</span>';
-      return chip + (index < steps.length - 1 ? '<span class="sequence-arrow">→</span>' : '');
+      return (index ? '<span class="sequence-arrow" aria-hidden="true">→</span>' : '') + '<span class="sequence-chip"><b>' + (index + 1) + '</b>' + escapeHtml(label) + '<small>' + STRINGS[step.string].name + step.fret + '</small></span>';
     }).join('');
+    return chips + (showPending ? '<span class="sequence-arrow" aria-hidden="true">→</span><span class="sequence-chip pending">próxima nota</span>' : '');
   }
 
   function compactSequence(steps) {
@@ -209,67 +247,82 @@
   function groupLabel(groupId) {
     return (GROUPS.find((group) => group.id === groupId) || {}).label || 'Sem grupo';
   }
+
+  function groupShortLabel(groupId) {
+    return (GROUPS.find((group) => group.id === groupId) || {}).short || 'Sem grupo';
+  }
+
+  function songMode(song) {
+    return song.studyMode || (song.lyrics ? 'lyrics' : 'cues');
+  }
+
   function renderLibrary() {
     const query = $('searchInput').value.trim().toLocaleLowerCase('pt-BR');
     const groupMatches = songs.filter((song) => libraryGroupFilter === 'all' || song.group === libraryGroupFilter);
     const matches = groupMatches.filter((song) => song.title.toLocaleLowerCase('pt-BR').includes(query));
-    $('songCount').textContent = songs.length + (songs.length === 1 ? ' música' : ' músicas');
+    const usedGroups = GROUPS.filter((group) => songs.some((song) => song.group === group.id)).length;
+    $('songCount').textContent = songs.length === 0
+      ? 'Nenhuma música ainda'
+      : songs.length + (songs.length === 1 ? ' música cadastrada' : ' músicas cadastradas') + (usedGroups ? ' em ' + usedGroups + (usedGroups === 1 ? ' grupo' : ' grupos') : '');
     $('groupCountAll').textContent = String(songs.length);
     GROUPS.forEach((group) => {
-      const count = songs.filter((song) => song.group === group.id).length;
-      $(group.countId).textContent = count + '/' + group.target;
+      $(group.countId).textContent = String(songs.filter((song) => song.group === group.id).length);
     });
     $('groupFilters').querySelectorAll('[data-group]').forEach((button) => {
       const active = button.dataset.group === libraryGroupFilter;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', String(active));
     });
-    $('emptyState').classList.toggle('hidden', songs.length > 0);
-    $('songsGrid').classList.toggle('hidden', matches.length === 0);
-    $('songsGrid').innerHTML = matches.map((song) => {
-      const phraseCount = (song.phrases || []).length;
-      const cueMode = (song.studyMode || (song.lyrics ? 'lyrics' : 'cues')) === 'cues';
-      const guideCount = cueMode ? phraseCount : nonEmptyLines(song.lyrics || '').length;
-      const guideLabel = cueMode ? (guideCount === 1 ? 'chamada curta' : 'chamadas curtas') : (guideCount === 1 ? 'linha de letra' : 'linhas de letra');
-      return '<article class="song-card"><div class="song-card-top"><h2>' + escapeHtml(song.title) + '</h2><span class="song-key">' + escapeHtml(song.key || 'Sem tom') + '</span></div><p class="song-info">' + phraseCount + (phraseCount === 1 ? ' frase' : ' frases') + ' do baixo · ' + guideCount + ' ' + guideLabel + '</p><span class="group-tag group-' + escapeHtml(song.group || 'none') + '">' + escapeHtml(groupLabel(song.group)) + '</span><div class="song-actions"><button class="small-action study" data-action="study" data-id="' + escapeHtml(song.id) + '" type="button">Estudar</button><button class="small-action" data-action="edit" data-id="' + escapeHtml(song.id) + '" type="button">Editar</button><button class="small-action" data-action="delete" data-id="' + escapeHtml(song.id) + '" type="button" aria-label="Excluir ' + escapeHtml(song.title) + '">Excluir</button></div></article>';
-    }).join('');
-    if (songs.length > 0 && matches.length === 0) {
+    const isEmpty = songs.length === 0;
+    $('emptyState').classList.toggle('hidden', !isEmpty);
+    $('libraryTools').classList.toggle('hidden', isEmpty);
+    $('libraryBar').classList.toggle('hidden', isEmpty);
+    $('songsGrid').classList.toggle('hidden', isEmpty);
+    if (!isEmpty && matches.length === 0) {
       const groupName = libraryGroupFilter === 'all' ? '' : ' em ' + groupLabel(libraryGroupFilter);
-      $('songsGrid').innerHTML = '<div class="empty-state"><h2>Nenhuma música encontrada' + groupName + '</h2><p>Tente outro nome ou escolha outro grupo.</p></div>';
-      $('songsGrid').classList.remove('hidden');
+      $('songsGrid').innerHTML = '<div class="no-results"><h2>Nenhuma música encontrada' + escapeHtml(groupName) + '</h2><p>Tente outro nome ou escolha outro grupo.</p></div>';
+    } else {
+      $('songsGrid').innerHTML = matches.map((song) => {
+        const phraseCount = (song.phrases || []).length;
+        const modeLabel = songMode(song) === 'cues' ? 'Chamadas' : 'Letra';
+        const key = (song.key || '—').split('/')[0];
+        return '<button class="song-row" type="button" data-action="study" data-id="' + escapeHtml(song.id) + '"><span class="key-tile' + (key.length > 3 ? ' long' : '') + '"><strong>' + escapeHtml(key) + '</strong><span>TOM</span></span><span class="song-copy"><span class="song-title">' + escapeHtml(song.title) + '</span><span class="song-info">' + escapeHtml(groupShortLabel(song.group)) + ' · ' + phraseCount + (phraseCount === 1 ? ' frase' : ' frases') + ' · ' + modeLabel + '</span></span>' + ICON_CHEVRON + '</button>';
+      }).join('');
     }
-    $('exportButton').disabled = songs.length === 0;
-    $('exportButton').style.opacity = songs.length === 0 ? '.5' : '1';
+    $('exportButton').disabled = isEmpty;
   }
 
   function openEditor(song) {
     editingId = song ? song.id : null;
     draftPhrases = song ? structuredClone(song.phrases || []) : [];
     composer = null;
+    renderComposer();
     $('editorHeading').textContent = song ? 'Editar música' : 'Nova música';
     $('songTitle').value = song ? song.title : '';
     populateKeys(song ? song.key : '');
     $('songUrl').value = song ? song.url || '' : '';
     $('songGroup').value = song ? song.group || '' : '';
     $('songLyrics').value = song ? song.lyrics || '' : '';
-    editorMode = song ? (song.studyMode || (song.lyrics ? 'lyrics' : 'cues')) : 'cues';
+    editorMode = song ? songMode(song) : 'cues';
     document.querySelectorAll('input[name="studyMode"]').forEach((input) => { input.checked = input.value === editorMode; });
+    $('deleteSongButton').classList.toggle('hidden', !song);
     applyEditorMode();
-    $('phraseComposer').classList.add('hidden');
-    renderPhraseList();
     showView('editor');
   }
 
   function applyEditorMode() {
     const lyricsMode = editorMode === 'lyrics';
     $('lyricsFields').classList.toggle('hidden', !lyricsMode);
-    $('cueModeHint').classList.toggle('hidden', lyricsMode);
+    $('modeHint').textContent = lyricsMode
+      ? 'A letra rola e cada frase aparece na linha marcada.'
+      : 'Uma chamada curta por frase, sem colar a letra. Cadastre na ordem da música.';
     $('phraseModeHint').textContent = lyricsMode
-      ? 'Cada desenho fica ligado à linha da letra onde a frase entra.'
-      : 'Escreva uma chamada curta e monte o desenho. Cadastre na ordem da música.';
+      ? 'Cada desenho fica ligado à sua linha da letra.'
+      : 'Escreva uma chamada curta e monte o desenho.';
     if (composer) renderComposer();
     renderPhraseList();
   }
+
   function renderPhraseList() {
     const list = $('phraseList');
     if (!draftPhrases.length) {
@@ -277,12 +330,12 @@
       return;
     }
     const lines = normalizedLyrics($('songLyrics').value);
-    list.innerHTML = draftPhrases.map((phrase) => {
+    list.innerHTML = draftPhrases.map((phrase, index) => {
       const line = (lines[phrase.lineIndex] || '').trim();
-      const cue = editorMode === 'lyrics'
-        ? 'Depois da linha ' + (Number(phrase.lineIndex) + 1) + (line ? ': “' + escapeHtml(line.slice(0, 56)) + (line.length > 56 ? '…' : '') + '”' : '')
-        : 'Chamada: ' + escapeHtml(phrase.title || 'Frase do baixo');
-      return '<article class="saved-phrase"><div class="saved-phrase-head"><div><div class="saved-phrase-title">' + escapeHtml(phrase.title || 'Frase do baixo') + '</div><div class="saved-phrase-cue">' + cue + '</div></div><div class="phrase-tools"><button type="button" data-phrase-action="edit" data-id="' + escapeHtml(phrase.id) + '">Editar</button><button type="button" data-phrase-action="delete" data-id="' + escapeHtml(phrase.id) + '">Remover</button></div></div><div class="saved-phrase-sequence">' + escapeHtml(compactSequence(phrase.steps)) + '</div></article>';
+      const text = editorMode === 'lyrics'
+        ? (line ? '“' + escapeHtml(line) + '”' : 'Linha ' + (Number(phrase.lineIndex) + 1))
+        : escapeHtml(phrase.title || 'Frase do baixo');
+      return '<article class="saved-phrase"><div class="saved-phrase-head"><span class="saved-phrase-num">FRASE ' + (index + 1) + '</span><span class="saved-phrase-line">' + text + '</span></div><div class="board-box">' + fretboardSvg(phrase.steps, false) + '</div><div class="sequence-chips">' + sequenceMarkup(phrase.steps, false) + '</div><div class="phrase-tools"><button type="button" data-phrase-action="edit" data-id="' + escapeHtml(phrase.id) + '">Editar</button><button type="button" data-phrase-action="delete" data-id="' + escapeHtml(phrase.id) + '">Remover</button></div></article>';
     }).join('');
   }
 
@@ -293,11 +346,23 @@
       ? lines.map((line) => '<option value="' + line.index + '"' + (line.index === composer.lineIndex ? ' selected' : '') + '>Linha ' + (line.index + 1) + ' · ' + escapeHtml(line.text.slice(0, 62)) + (line.text.length > 62 ? '…' : '') + '</option>').join('')
       : '<option value="-1">Adicione a letra para escolher uma linha</option>';
     const anchorField = editorMode === 'lyrics'
-      ? '<label class="field"><span>Mostrar depois da linha</span><select id="phraseLine">' + linePicker + '</select></label>'
+      ? '<label class="field"><span>Entra na linha</span><span class="select-wrap"><select id="phraseLine">' + linePicker + '</select></span></label>'
       : '';
     const titleLabel = editorMode === 'lyrics' ? 'Nome desta frase' : 'Chamada curta';
     const titlePlaceholder = editorMode === 'lyrics' ? 'Ex.: Entrada do refrão' : 'Ex.: depois da 2ª linha do refrão';
-    return '<div class="composer-title"><h3>' + (composer.editId ? 'Editar frase' : 'Nova frase') + '</h3><button class="close-composer" id="closeComposer" type="button" aria-label="Fechar">×</button></div><div class="composer-fields' + (editorMode === 'cues' ? ' cue-fields' : '') + '"><label class="field"><span>' + titleLabel + '</span><input id="phraseTitle" maxlength="80" value="' + escapeHtml(composer.title) + '" placeholder="' + titlePlaceholder + '"></label>' + anchorField + '</div><div class="fretboard-wrap" id="composerBoard">' + fretboardSvg(composer.steps, true) + '</div><p class="fret-hint">Afinação Si–Mi–Lá–Ré–Sol · casas 0 a 12, corda solta à esquerda da pestana · toque uma casa por nota. Repetir a casa registra o retorno.</p><div class="sequence-box"><div class="sequence-label">ORDEM DAS NOTAS</div><div class="sequence-chips">' + sequenceMarkup(composer.steps) + '</div></div><div class="composer-actions"><button class="quiet-button" id="undoNote" type="button">Desfazer nota</button><button class="quiet-button" id="clearNotes" type="button">Limpar desenho</button><button class="primary-button" id="savePhrase" type="button">' + (composer.editId ? 'Salvar alterações' : 'Adicionar frase') + '</button></div>';
+    const existingIndex = composer.editId ? draftPhrases.findIndex((phrase) => phrase.id === composer.editId) : -1;
+    const number = existingIndex >= 0 ? existingIndex + 1 : draftPhrases.length + 1;
+    const count = composer.steps.length;
+    return '<div class="composer-inner">'
+      + '<div class="composer-bar"><button class="text-button" id="closeComposer" type="button">Cancelar</button><h2>Frase ' + number + '</h2><button class="text-button accent" id="savePhraseTop" type="button">Concluir</button></div>'
+      + '<div class="composer-body">'
+      + anchorField
+      + '<label class="field"><span>' + titleLabel + '</span><input id="phraseTitle" maxlength="80" value="' + escapeHtml(composer.title) + '" placeholder="' + titlePlaceholder + '"></label>'
+      + '<section class="card board-card" aria-label="Braço do baixo, toque nas casas"><div class="board-card-head"><strong>Toque as casas na ordem</strong><span>casas 0–12</span></div><div id="composerBoard">' + fretboardSvg(composer.steps, true) + '</div></section>'
+      + '<section class="sequence-section"><div class="sequence-head"><span>SEQUÊNCIA · ' + count + (count === 1 ? ' NOTA' : ' NOTAS') + '</span><div><button class="quiet-button" id="undoNote" type="button">' + ICON_UNDO + 'Desfazer</button><button class="quiet-button" id="clearNotes" type="button">' + ICON_TRASH + 'Limpar</button></div></div><div class="sequence-chips">' + sequenceMarkup(composer.steps, count > 0) + '</div></section>'
+      + '<p class="composer-tip">Os nomes das notas e as setas da sequência aparecem sozinhos. Casa 0 é a corda solta. Repetir a casa registra o retorno.</p>'
+      + '</div></div>'
+      + '<div class="bottom-bar"><button class="primary-button wide" id="savePhrase" type="button">' + (composer.editId ? 'Salvar alterações' : 'Adicionar frase') + '</button></div>';
   }
 
   function renderComposer() {
@@ -305,10 +370,14 @@
     if (!composer) {
       root.classList.add('hidden');
       root.innerHTML = '';
+      document.body.classList.remove('sheet-open');
       return;
     }
+    const scrollTop = root.scrollTop;
     root.classList.remove('hidden');
+    document.body.classList.add('sheet-open');
     root.innerHTML = composerMarkup();
+    root.scrollTop = scrollTop;
     const titleInput = $('phraseTitle');
     titleInput.addEventListener('input', () => { composer.title = titleInput.value; });
     if ($('phraseLine')) $('phraseLine').addEventListener('change', (event) => {
@@ -319,6 +388,7 @@
     $('undoNote').addEventListener('click', () => { composer.steps.pop(); renderComposer(); });
     $('clearNotes').addEventListener('click', () => { composer.steps = []; renderComposer(); });
     $('savePhrase').addEventListener('click', savePhraseFromComposer);
+    $('savePhraseTop').addEventListener('click', savePhraseFromComposer);
     $('composerBoard').querySelectorAll('.fret-zone').forEach((zone) => {
       const add = () => {
         composer.steps.push({ string: Number(zone.dataset.string), fret: Number(zone.dataset.fret) });
@@ -335,8 +405,8 @@
     composer = phrase
       ? { editId: phrase.id, id: phrase.id, title: phrase.title || '', lineIndex: Number(phrase.lineIndex) || 0, steps: structuredClone(phrase.steps || []) }
       : { editId: null, id: makeId(), title: editorMode === 'cues' ? '' : 'Frase ' + (draftPhrases.length + 1), lineIndex: Math.max(0, nonEmptyLines($('songLyrics').value)[0]?.index || 0), steps: [] };
+    $('phraseComposer').scrollTop = 0;
     renderComposer();
-    $('phraseComposer').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   function savePhraseFromComposer() {
@@ -460,8 +530,8 @@
   }
 
   function phraseCardMarkup(phrase, cueMode) {
-    const heading = cueMode ? 'DESENHO DO BAIXO' : 'FRASE DO BAIXO · ' + (phrase.title || 'ARRANJO');
-    return '<article class="phrase-card"><div class="phrase-card-heading"><span>' + escapeHtml(heading) + '</span><span>observe o caminho</span></div><div class="phrase-svg-wrap">' + fretboardSvg(phrase.steps, false) + '<p class="phrase-sequence-caption">' + escapeHtml(compactSequence(phrase.steps)) + '</p></div></article>';
+    const heading = cueMode ? 'Desenho do baixo' : (phrase.title || 'Frase do baixo');
+    return '<article class="phrase-card"><div class="phrase-card-heading"><span>' + escapeHtml(heading) + '</span><span>' + boardRangeLabel(phrase.steps) + '</span></div>' + fretboardSvg(phrase.steps, false) + '<div class="sequence-chips">' + sequenceMarkup(phrase.steps, false) + '</div></article>';
   }
 
   function renderStageLyrics(song) {
@@ -578,9 +648,9 @@
     const cueMode = (song.studyMode || (song.lyrics ? 'lyrics' : 'cues')) === 'cues';
     $('studyTitle').textContent = song.title;
     $('stageTitle').textContent = song.title;
-    $('stageKey').textContent = 'TOM · ' + (song.key || 'não definido');
+    $('stageKey').textContent = 'Tom · ' + (song.key || 'não definido');
     $('stageLaunchButton').classList.toggle('hidden', (song.studyMode || (song.lyrics ? 'lyrics' : 'cues')) === 'cues');
-    $('studyKey').textContent = 'TOM · ' + (song.key || 'não definido');
+    $('studyKey').textContent = 'Tom · ' + (song.key || 'não definido');
     const groupBadge = $('studyGroup');
     groupBadge.textContent = groupLabel(song.group);
     groupBadge.classList.toggle('hidden', !song.group);
@@ -590,7 +660,7 @@
     const phrases = song.phrases || [];
     let markup = '';
     if (cueMode) {
-      markup = phrases.map((phrase, index) => '<div class="short-cue-row"><span>LEMBRETE ' + (index + 1) + '</span><strong>' + escapeHtml(phrase.title || 'Frase do baixo') + '</strong></div>' + phraseCardMarkup(phrase, true)).join('');
+      markup = phrases.map((phrase, index) => '<div class="short-cue-row"><span>' + (index + 1) + '</span><strong>' + escapeHtml(phrase.title || 'Frase do baixo') + '</strong></div>' + phraseCardMarkup(phrase, true)).join('');
     } else {
       const lines = normalizedLyrics(song.lyrics || '');
       const phrasesByLine = new Map();
@@ -611,16 +681,10 @@
     renderStageLyrics(song);
     stageLineIndex = 0;
     updateStagePhrasePanel();
-    $('speedControl').classList.toggle('hidden', cueMode);
-    $('playButton').classList.toggle('hidden', cueMode);
-    $('topButton').classList.toggle('hidden', cueMode);
-    $('studyStageEyebrow').textContent = cueMode ? 'CHAMADAS DAS FRASES' : 'ACOMPANHE A LETRA';
-    $('studyStageHint').textContent = cueMode ? 'Cada lembrete vem junto do desenho para você visualizar o caminho.' : 'O desenho aparece junto da linha marcada.';
-    $('studyStageMode').textContent = cueMode ? 'na ordem da música' : 'rolagem livre';
-    $('studyFooter').textContent = cueMode ? 'As chamadas aparecem na ordem em que você cadastrou as frases.' : 'Toque em qualquer parte da letra para pausar ou rolar manualmente.';
+    $('studyDock').classList.toggle('hidden', cueMode);
+    $('studyView').classList.toggle('cue-mode', cueMode);
     studySpeed = 0.75;
     $('speedSlider').value = String(studySpeed);
-    $('stageSpeedSlider').value = String(studySpeed);
     updateSpeedLabel();
     pauseStudy(false);
     $('readingStatus').textContent = cueMode ? phrases.length + (phrases.length === 1 ? ' lembrete cadastrado' : ' lembretes cadastrados') : 'Pronto para estudar';
@@ -635,7 +699,6 @@
   function setSpeed(value) {
     studySpeed = Math.max(0.25, Math.min(2, Math.round(Number(value) * 4) / 4));
     $('speedSlider').value = String(studySpeed);
-    $('stageSpeedSlider').value = String(studySpeed);
     updateSpeedLabel();
   }
 
@@ -664,11 +727,11 @@
     lastFrame = 0;
     isPlaying = false;
     if ($('playButton')) {
-      $('playButton').innerHTML = '<span>▶</span><span>Começar</span>';
+      $('playButton').innerHTML = ICON_PLAY + '<span>Começar</span>';
       $('playButton').setAttribute('aria-label', 'Começar rolagem da letra');
     }
     if ($('stagePlayButton')) {
-      $('stagePlayButton').innerHTML = '<span aria-hidden="true">▶</span><span>Começar</span>';
+      $('stagePlayButton').innerHTML = ICON_PLAY + '<span>Começar</span>';
       $('stagePlayButton').setAttribute('aria-label', 'Começar rolagem da letra');
     }
     if (updateStatus && $('readingStatus')) $('readingStatus').textContent = 'Pausado · role manualmente se quiser';
@@ -684,9 +747,9 @@
     if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) panel.scrollTop = 0;
     scrollPosition = panel.scrollTop;
     isPlaying = true;
-    $('playButton').innerHTML = '<span>Ⅱ</span><span>Pausar</span>';
+    $('playButton').innerHTML = ICON_PAUSE + '<span>Pausar</span>';
     $('playButton').setAttribute('aria-label', 'Pausar rolagem da letra');
-    $('stagePlayButton').innerHTML = '<span aria-hidden="true">Ⅱ</span><span>Pausar</span>';
+    $('stagePlayButton').innerHTML = ICON_PAUSE + '<span>Pausar</span>';
     $('stagePlayButton').setAttribute('aria-label', 'Pausar rolagem da letra');
     $('readingStatus').textContent = 'Letra rolando';
     $('stageStatus').textContent = 'Letra rolando';
@@ -700,7 +763,19 @@
     songs = songs.filter((item) => item.id !== songId);
     persist();
     renderLibrary();
+    if (editingId === songId) {
+      editingId = null;
+      draftPhrases = [];
+      showView('library');
+    }
     showToast('Música excluída.');
+  }
+
+  function closeMoreMenu() {
+    const menu = $('moreMenu');
+    if (!menu || menu.classList.contains('hidden')) return;
+    menu.classList.add('hidden');
+    $('moreButton').setAttribute('aria-expanded', 'false');
   }
 
   function downloadJson() {
@@ -757,6 +832,18 @@
     $('editorBack').addEventListener('click', () => { renderLibrary(); showView('library'); });
     $('studyBack').addEventListener('click', () => { renderLibrary(); showView('library'); });
     $('saveSongButton').addEventListener('click', saveSong);
+    $('saveSongTop').addEventListener('click', saveSong);
+    $('deleteSongButton').addEventListener('click', () => { if (editingId) deleteSong(editingId); });
+    $('moreButton').addEventListener('click', (event) => {
+      event.stopPropagation();
+      const open = $('moreMenu').classList.contains('hidden');
+      $('moreMenu').classList.toggle('hidden', !open);
+      $('moreButton').setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest('.more-wrap')) closeMoreMenu();
+    });
+    $('emptyImportButton').addEventListener('click', () => $('importFile').click());
     $('addPhraseButton').addEventListener('click', () => openComposer(null));
     document.querySelectorAll('input[name="studyMode"]').forEach((input) => input.addEventListener('change', () => {
       if (!input.checked) return;
@@ -791,8 +878,6 @@
       const button = event.target.closest('[data-action]');
       if (!button) return;
       if (button.dataset.action === 'study') startStudy(button.dataset.id);
-      if (button.dataset.action === 'edit') openEditor(songs.find((song) => song.id === button.dataset.id));
-      if (button.dataset.action === 'delete') deleteSong(button.dataset.id);
     });
     $('groupFilters').addEventListener('click', (event) => {
       const button = event.target.closest('[data-group]');
@@ -806,12 +891,16 @@
     $('stageExitButton').addEventListener('click', exitStageMode);
     $('playButton').addEventListener('click', toggleStudy);
     $('stagePlayButton').addEventListener('click', toggleStudy);
-    $('stageSpeedSlider').addEventListener('input', (event) => setSpeed(event.target.value));
     $('stageSlowerButton').addEventListener('click', () => setSpeed(studySpeed - 0.25));
     $('stageFasterButton').addEventListener('click', () => setSpeed(studySpeed + 0.25));
     $('stageLyrics').addEventListener('pointerdown', () => { if (isPlaying) pauseStudy(true); }, { passive: true });
     $('stageLyrics').addEventListener('scroll', () => { if (isStageMode) updateStageFocus(); }, { passive: true });
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && isStageMode) exitStageMode(); });
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      if (isStageMode) exitStageMode();
+      else if (composer) { composer = null; renderComposer(); }
+      else closeMoreMenu();
+    });
     document.addEventListener('gesturestart', (event) => event.preventDefault(), { passive: false });
     document.addEventListener('gesturechange', (event) => event.preventDefault(), { passive: false });
     $('speedSlider').addEventListener('input', (event) => setSpeed(event.target.value));
@@ -822,8 +911,8 @@
       $('studyLyrics').scrollTo({ top: 0, behavior: 'smooth' });
       $('readingStatus').textContent = 'Pronto para estudar';
     });
-    $('exportButton').addEventListener('click', downloadJson);
-    $('importButton').addEventListener('click', () => $('importFile').click());
+    $('exportButton').addEventListener('click', () => { closeMoreMenu(); downloadJson(); });
+    $('importButton').addEventListener('click', () => { closeMoreMenu(); $('importFile').click(); });
     $('importFile').addEventListener('change', (event) => importJson(event.target.files[0]));
     window.addEventListener('beforeinstallprompt', (event) => {
       event.preventDefault();
@@ -851,6 +940,9 @@
 
   function initialize() {
     populateKeys('');
+    document.body.dataset.view = 'library';
+    $('emptyArt').innerHTML = fretboardSvg([{ string: 3, fret: 3 }, { string: 2, fret: 2 }, { string: 2, fret: 5 }], false);
+    pauseStudy(false);
     bindEvents();
     renderLibrary();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -863,7 +955,7 @@
           window.location.reload();
         });
       }
-      navigator.serviceWorker.register('./sw.js?v=13', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('./sw.js?v=14', { updateViaCache: 'none' })
         .then((registration) => registration.update())
         .catch(() => {});
     }
