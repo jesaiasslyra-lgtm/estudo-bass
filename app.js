@@ -651,6 +651,25 @@
     return Number(closest.dataset.lineIndex);
   }
 
+  function updateStageEdgeSpacers() {
+    const panel = $('stageLyrics');
+    if (!panel || !stageRows.length || !panel.clientHeight) return;
+    panel.style.setProperty('--stage-start-space', '0px');
+    panel.style.setProperty('--stage-end-space', '0px');
+    panel.scrollTop = 0;
+
+    const bounds = panel.getBoundingClientRect();
+    const marker = panel.clientHeight * 0.43;
+    const first = stageRows[0].getBoundingClientRect();
+    const firstCenter = first.top - bounds.top + first.height / 2;
+    panel.style.setProperty('--stage-start-space', Math.max(0, marker - firstCenter) + 'px');
+
+    const last = stageRows[stageRows.length - 1].getBoundingClientRect();
+    const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    const lastCenterAtEnd = last.top - bounds.top + last.height / 2 - maxScroll;
+    panel.style.setProperty('--stage-end-space', Math.max(0, lastCenterAtEnd - marker) + 'px');
+  }
+
   function currentStageLyricIndex(container) {
     if (!stageRows.length) return -1;
     const bounds = container.getBoundingClientRect();
@@ -766,12 +785,17 @@
   function enterStageMode() {
     if (!studySongId || $('stageLaunchButton').classList.contains('hidden')) return;
     pauseStudy(false);
-    const currentIndex = currentLyricIndex($('studyLyrics'), '.lyric-row');
+    const studyLyrics = $('studyLyrics');
+    const firstStageLine = stageRows.length ? Number(stageRows[0].dataset.lineIndex) : 0;
+    const currentIndex = studyLyrics.scrollTop <= 1
+      ? firstStageLine
+      : currentLyricIndex(studyLyrics, '.lyric-row');
     $('stageView').classList.remove('hidden');
     $('stageView').setAttribute('aria-hidden', 'false');
     document.body.classList.add('stage-mode');
     isStageMode = true;
-    scrollStageToLine(currentIndex >= 0 ? currentIndex : 0);
+    updateStageEdgeSpacers();
+    scrollStageToLine(currentIndex >= 0 ? currentIndex : firstStageLine);
     $('stageStatus').textContent = 'Pronto para tocar';
     $('stagePlayButton').focus({ preventScroll: true });
   }
@@ -828,8 +852,16 @@
     if (!markup.trim()) markup = '<div class="study-empty">' + (cueMode ? 'Esta música ainda não tem lembretes. Edite para adicionar as chamadas e os desenhos do baixo.' : 'Esta música ainda não tem letra. Edite para adicionar a letra e marcar as frases.') + '</div>';
     $('studyLyrics').innerHTML = markup;
     $('studyLyrics').scrollTop = 0;
+    $('stageLyrics').scrollTop = 0;
+    scrollPosition = 0;
     renderStageLyrics(song);
-    stageLineIndex = 0;
+    stageLineIndex = stageRows.length ? Number(stageRows[0].dataset.lineIndex) : 0;
+    const firstStageRow = stageRowByLine.get(stageLineIndex);
+    if (firstStageRow) {
+      firstStageRow.classList.add('is-current');
+      firstStageRow.setAttribute('aria-current', 'true');
+      $('stageLyrics').dataset.activeLine = String(stageLineIndex);
+    }
     updateStagePhrasePanel();
     $('studyDock').classList.toggle('hidden', cueMode);
     $('studyView').classList.toggle('cue-mode', cueMode);
@@ -1122,7 +1154,7 @@
           window.location.reload();
         });
       }
-      navigator.serviceWorker.register('./sw.js?v=17', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('./sw.js?v=18', { updateViaCache: 'none' })
         .then((registration) => registration.update())
         .catch(() => {});
     }

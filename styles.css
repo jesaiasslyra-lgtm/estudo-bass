@@ -227,6 +227,8 @@ body.stage-mode>.app-header,body.stage-mode>main{visibility:hidden;pointer-event
 .stage-live-mark span{width:8px;height:8px;border-radius:50%;background:var(--accent)}
 .stage-lyrics{position:relative;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:8px 24px;mask-image:linear-gradient(to bottom,transparent,#000 14%,#000 86%,transparent);-webkit-mask-image:linear-gradient(to bottom,transparent,#000 14%,#000 86%,transparent)}
 .stage-lyrics::-webkit-scrollbar{display:none}
+.stage-lyrics::before{content:"";display:block;height:var(--stage-start-space,0px);pointer-events:none}
+.stage-lyrics::after{content:"";display:block;height:var(--stage-end-space,0px);pointer-events:none}
 .stage-lyric-row{margin:12px 0;color:var(--muted);font:20px/1.3 var(--serif);transition:color .18s,font-size .18s}
 .stage-lyric-row.is-current{color:var(--ink);font-size:26px;font-weight:500;letter-spacing:-.01em}
 .stage-lyric-spacer{height:14px}
