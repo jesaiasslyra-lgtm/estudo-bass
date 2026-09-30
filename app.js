@@ -46,6 +46,8 @@
   let stageEmptyRendered = false;
   let stageFocusFrame = 0;
   let lastStageFocusAt = 0;
+  let searchRenderTimer = 0;
+  let phraseLabelsFrame = 0;
 
   function makeId() {
     return (globalThis.crypto && crypto.randomUUID)
@@ -267,6 +269,10 @@
   }
 
   function renderLibrary() {
+    if (searchRenderTimer) {
+      window.clearTimeout(searchRenderTimer);
+      searchRenderTimer = 0;
+    }
     const query = $('searchInput').value.trim().toLocaleLowerCase('pt-BR');
     const groupMatches = songs.filter((song) => libraryGroupFilter === 'all' || song.group === libraryGroupFilter);
     const matches = groupMatches.filter((song) => song.title.toLocaleLowerCase('pt-BR').includes(query));
@@ -300,6 +306,15 @@
       }).join('');
     }
     $('exportButton').disabled = isEmpty;
+  }
+
+
+  function scheduleLibraryRender() {
+    if (searchRenderTimer) window.clearTimeout(searchRenderTimer);
+    searchRenderTimer = window.setTimeout(() => {
+      searchRenderTimer = 0;
+      renderLibrary();
+    }, 100);
   }
 
   function openEditor(song) {
@@ -349,6 +364,27 @@
     }).join('');
   }
 
+
+  function updatePhraseLineLabels() {
+    if (editorMode !== 'lyrics') return;
+    const lines = normalizedLyrics($('songLyrics').value);
+    $('phraseList').querySelectorAll('.saved-phrase').forEach((card, index) => {
+      const phrase = draftPhrases[index];
+      const label = card.querySelector('.saved-phrase-line');
+      if (!phrase || !label) return;
+      const line = (lines[phrase.lineIndex] || '').trim();
+      label.textContent = line ? '“' + line + '”' : 'Linha ' + (Number(phrase.lineIndex) + 1);
+    });
+  }
+
+  function schedulePhraseLineLabels() {
+    if (phraseLabelsFrame) return;
+    phraseLabelsFrame = requestAnimationFrame(() => {
+      phraseLabelsFrame = 0;
+      updatePhraseLineLabels();
+    });
+  }
+
   function composerMarkup() {
     if (!composer) return '';
     const lines = nonEmptyLines($('songLyrics').value);
@@ -375,6 +411,26 @@
       + '<div class="bottom-bar"><button class="primary-button wide" id="savePhrase" type="button">' + (composer.editId ? 'Salvar alterações' : 'Adicionar frase') + '</button></div>';
   }
 
+
+  function renderComposerProgress() {
+    if (!composer) return;
+    const root = $('phraseComposer');
+    const board = $('composerBoard');
+    const sequence = root.querySelector('.sequence-section .sequence-chips');
+    const label = root.querySelector('.sequence-head > span');
+    if (!board || !sequence || !label) return;
+    board.innerHTML = fretboardSvg(composer.steps, true);
+    label.textContent = 'SEQUÊNCIA · ' + composer.steps.length + (composer.steps.length === 1 ? ' NOTA' : ' NOTAS');
+    sequence.innerHTML = sequenceMarkup(composer.steps, composer.steps.length > 0);
+  }
+
+
+  function addComposerStep(zone) {
+    if (!composer || !zone) return;
+    composer.steps.push({ string: Number(zone.dataset.string), fret: Number(zone.dataset.fret) });
+    renderComposerProgress();
+  }
+
   function renderComposer() {
     const root = $('phraseComposer');
     if (!composer) {
@@ -395,20 +451,11 @@
       renderComposer();
     });
     $('closeComposer').addEventListener('click', () => { composer = null; renderComposer(); });
-    $('undoNote').addEventListener('click', () => { composer.steps.pop(); renderComposer(); });
-    $('clearNotes').addEventListener('click', () => { composer.steps = []; renderComposer(); });
+    $('undoNote').addEventListener('click', () => { composer.steps.pop(); renderComposerProgress(); });
+    $('clearNotes').addEventListener('click', () => { composer.steps = []; renderComposerProgress(); });
     $('savePhrase').addEventListener('click', savePhraseFromComposer);
     $('savePhraseTop').addEventListener('click', savePhraseFromComposer);
-    $('composerBoard').querySelectorAll('.fret-zone').forEach((zone) => {
-      const add = () => {
-        composer.steps.push({ string: Number(zone.dataset.string), fret: Number(zone.dataset.fret) });
-        renderComposer();
-      };
-      zone.addEventListener('click', add);
-      zone.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); add(); }
-      });
-    });
+
   }
 
   function openComposer(phrase) {
@@ -931,12 +978,24 @@
     });
     $('emptyImportButton').addEventListener('click', () => $('importFile').click());
     $('addPhraseButton').addEventListener('click', () => openComposer(null));
+    $('phraseComposer').addEventListener('click', (event) => {
+      const zone = event.target.closest && event.target.closest('.fret-zone');
+      if (composer && zone && zone.closest('#composerBoard')) addComposerStep(zone);
+    });
+    $('phraseComposer').addEventListener('keydown', (event) => {
+      const zone = event.target.closest && event.target.closest('.fret-zone');
+      if (!composer || !zone || !zone.closest('#composerBoard')) return;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        addComposerStep(zone);
+      }
+    });
     document.querySelectorAll('input[name="studyMode"]').forEach((input) => input.addEventListener('change', () => {
       if (!input.checked) return;
       editorMode = input.value;
       applyEditorMode();
     }));
-    $('songLyrics').addEventListener('input', renderPhraseList);
+    $('songLyrics').addEventListener('input', schedulePhraseLineLabels);
     $('cleanLyricsButton').addEventListener('click', () => {
       const lyrics = $('songLyrics');
       const cleaned = cleanTranscript(lyrics.value);
@@ -971,7 +1030,7 @@
       libraryGroupFilter = button.dataset.group;
       renderLibrary();
     });
-    $('searchInput').addEventListener('input', renderLibrary);
+    $('searchInput').addEventListener('input', scheduleLibraryRender);
     $('editCurrentButton').addEventListener('click', () => openEditor(songs.find((song) => song.id === studySongId)));
     $('stageLaunchButton').addEventListener('click', enterStageMode);
     $('stageExitButton').addEventListener('click', exitStageMode);
@@ -1043,7 +1102,7 @@
           window.location.reload();
         });
       }
-      navigator.serviceWorker.register('./sw.js?v=15', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('./sw.js?v=16', { updateViaCache: 'none' })
         .then((registration) => registration.update())
         .catch(() => {});
     }
