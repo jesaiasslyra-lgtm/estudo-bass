@@ -812,6 +812,8 @@
     $('stageLyrics').addEventListener('pointerdown', () => { if (isPlaying) pauseStudy(true); }, { passive: true });
     $('stageLyrics').addEventListener('scroll', () => { if (isStageMode) updateStageFocus(); }, { passive: true });
     document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && isStageMode) exitStageMode(); });
+    document.addEventListener('gesturestart', (event) => event.preventDefault(), { passive: false });
+    document.addEventListener('gesturechange', (event) => event.preventDefault(), { passive: false });
     $('speedSlider').addEventListener('input', (event) => setSpeed(event.target.value));
     $('slowerButton').addEventListener('click', () => setSpeed(studySpeed - 0.25));
     $('fasterButton').addEventListener('click', () => setSpeed(studySpeed + 0.25));

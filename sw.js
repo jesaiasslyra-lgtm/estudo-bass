@@ -1,4 +1,4 @@
-const CACHE_NAME = "estudo-bass-shell-v11";
+const CACHE_NAME = "estudo-bass-shell-v12";
 const SHELL = ["./","./index.html","./styles.css","./app.js","./manifest.webmanifest","./icon.svg","./icon-192.png","./icon-512.png"];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
