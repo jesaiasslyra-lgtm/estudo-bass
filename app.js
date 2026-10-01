@@ -92,6 +92,7 @@
   function showView(name) {
     Object.keys(views).forEach((key) => views[key].classList.toggle('hidden', key !== name));
     document.body.dataset.view = name;
+    document.body.classList.toggle('lyrics-study-mode', name === 'study' && !views.study.classList.contains('cue-mode'));
     closeMoreMenu();
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (name !== 'study') pauseStudy(false);
@@ -1154,7 +1155,7 @@
           window.location.reload();
         });
       }
-      navigator.serviceWorker.register('./sw.js?v=18', { updateViaCache: 'none' })
+      navigator.serviceWorker.register('./sw.js?v=19', { updateViaCache: 'none' })
         .then((registration) => registration.update())
         .catch(() => {});
     }

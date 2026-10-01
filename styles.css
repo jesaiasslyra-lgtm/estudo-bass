@@ -213,6 +213,14 @@ body.sheet-open{overflow:hidden}
 .square-control svg{width:20px;height:20px}
 .play-icon{width:18px;height:18px}
 
+/* Estudo com letra: mantém controles visíveis e concentra a rolagem no conteúdo. */
+body.lyrics-study-mode{overflow:hidden}
+body.lyrics-study-mode main{height:100vh;height:100dvh;padding:0;overflow:hidden}
+body.lyrics-study-mode #studyView{height:100%;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden}
+body.lyrics-study-mode #studyView .lyrics-card{min-height:0;margin-top:10px;display:flex;flex-direction:column}
+body.lyrics-study-mode #studyView .study-lyrics{width:100%;height:auto;min-height:0;flex:1;padding-bottom:16px}
+body.lyrics-study-mode #studyView .study-dock{position:static;left:auto;right:auto;bottom:auto;margin:0;padding:10px var(--gutter) calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+
 /* Palco */
 body.stage-mode{overflow:hidden}
 body.stage-mode>.app-header,body.stage-mode>main{visibility:hidden;pointer-events:none}
